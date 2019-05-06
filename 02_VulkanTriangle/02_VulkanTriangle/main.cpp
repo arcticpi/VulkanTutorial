@@ -7,6 +7,7 @@
 
 #include <string>
 #include <vector>
+#include <optional>
 
 #ifdef NDEBUG
 const bool EnableValidationLayer = false;;
@@ -45,42 +46,50 @@ private:
 	// vulkan
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT messenger;
+	VkPhysicalDevice device = VK_NULL_HANDLE;
 
 	void InitVulkan()
 	{
 		CreateInstance();
 		SetupDebugMessenger();
+		PickPhysicalDevice();
 	}
 
 	void DisplayAvailableLayers()
 	{
-		uint32_t count;
+		uint32_t count = 0;
 		vkEnumerateInstanceLayerProperties(&count, nullptr);
 
 		std::vector<VkLayerProperties> properties(count);
 		vkEnumerateInstanceLayerProperties(&count, properties.data());
 
-		std::cout << "--- Instance Layer Properties ---" << std::endl;
-
-		for (VkLayerProperties property : properties)
+		if (count != 0)
 		{
-			std::cout << property.layerName << std::endl;
+			std::cout << "--- Instance Layer Properties ---" << std::endl;
+
+			for (VkLayerProperties property : properties)
+			{
+				std::cout << property.layerName << std::endl;
+			}
 		}
 	}
 
 	void DisplayAvailableExtensions()
 	{
-		uint32_t count;
+		uint32_t count = 0;
 		vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
 
 		std::vector<VkExtensionProperties> properties(count);
 		vkEnumerateInstanceExtensionProperties(nullptr, &count, properties.data());
 
-		std::cout << "--- Instance Extension Properties ---" << std::endl;
-
-		for (VkExtensionProperties property : properties)
+		if (count != 0)
 		{
-			std::cout << property.extensionName << std::endl;
+			std::cout << "--- Instance Extension Properties ---" << std::endl;
+
+			for (VkExtensionProperties property : properties)
+			{
+				std::cout << property.extensionName << std::endl;
+			}
 		}
 	}
 
@@ -198,6 +207,66 @@ private:
 		}
 	}
 
+	void PickPhysicalDevice()
+	{
+		uint32_t count = 0;
+		vkEnumeratePhysicalDevices(instance, &count, nullptr);
+
+		if (count != 0)
+		{
+			std::vector<VkPhysicalDevice> devices(count);
+			vkEnumeratePhysicalDevices(instance, &count, devices.data());
+
+			for (VkPhysicalDevice device : devices)
+			{
+				if (IsDeviceSuitable(device))
+				{
+					this->device = device;
+					break;
+				}
+			}
+
+			if (this->device == VK_NULL_HANDLE)
+			{
+				throw std::runtime_error("failed to find a suitable device");
+			}
+		}
+		else
+		{
+			throw std::runtime_error("failed to find any physical device");
+		}
+	}
+
+	bool IsDeviceSuitable(VkPhysicalDevice device)
+	{
+		std::optional<uint32_t> QueueFamilyIndex = FindQueueFamilyIndex(device);
+		return QueueFamilyIndex.has_value();
+	}
+
+	std::optional<uint32_t> FindQueueFamilyIndex(VkPhysicalDevice device)
+	{
+		uint32_t count = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
+
+		if (count != 0)
+		{
+			std::vector<VkQueueFamilyProperties> families(count);
+			vkGetPhysicalDeviceQueueFamilyProperties(device, &count, families.data());
+
+			for (int i = 0; i < count; i++)
+			{
+				const VkQueueFamilyProperties& family = families[i];
+
+				if ((family.queueCount > 0) && (family.queueFlags & VK_QUEUE_GRAPHICS_BIT))
+				{
+					return i;
+				}
+			}
+		}
+
+		return std::nullopt;
+	}
+
 	void MainLoop()
 	{
 		while (!glfwWindowShouldClose(window))
@@ -208,6 +277,8 @@ private:
 
 	void cleanup()
 	{
+		// VkPhysicalDevice implicitly destroyed when VkInstance is destroyed
+
 		if (EnableValidationLayer)
 		{
 			vkDestroyDebugUtilsMessengerEXT(instance, messenger, nullptr);
