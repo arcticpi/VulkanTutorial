@@ -86,6 +86,7 @@ private:
 	std::vector<VkImage> SwapChainImages;
 	VkFormat SwapChainFormat;
 	VkExtent2D SwapChainExtent;
+	std::vector<VkImageView> SwapChainImageViews;
 
 	void InitVulkan()
 	{
@@ -95,6 +96,7 @@ private:
 		PickPhysicalDevice();
 		CreateLogicalDevice();
 		CreateSwapChain();
+		CreateImageViews();
 	}
 
 	void DisplayAvailableLayers()
@@ -573,6 +575,50 @@ private:
 		SwapChainExtent = extent;
 	}
 
+	void CreateImageViews()
+	{
+		// SwapChainImageViews.resize(SwapChainImages.size());
+
+		for (VkImage image : SwapChainImages)
+		{
+			VkComponentMapping components = {
+				VK_COMPONENT_SWIZZLE_IDENTITY,	//	r
+				VK_COMPONENT_SWIZZLE_IDENTITY,	//	g
+				VK_COMPONENT_SWIZZLE_IDENTITY,	//	b
+				VK_COMPONENT_SWIZZLE_IDENTITY	//	a
+			};
+
+			VkImageSubresourceRange SubresourceRange = {
+				VK_IMAGE_ASPECT_COLOR_BIT,	//	aspectMask
+				0,							//	baseMipLevel
+				1,							//	levelCount
+				0,							//	baseArrayLayer
+				1							//	layerCount
+			};
+
+			VkImageViewCreateInfo ImageViewCreateInfo = {
+				VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,	// sType
+				nullptr,									// pNext
+				0,											// flags
+				image,										// image
+				VK_IMAGE_VIEW_TYPE_2D,						// viewType
+				SwapChainFormat,							// format
+				components,									// components
+				SubresourceRange							// subresourceRange
+			};
+
+			VkImageView view;
+			VkResult result = vkCreateImageView(device, &ImageViewCreateInfo, nullptr, &view);
+
+			if (result != VK_SUCCESS)
+			{
+				throw std::runtime_error("failed to create image views");
+			}
+
+			SwapChainImageViews.push_back(view);
+		}
+	}
+
 	void MainLoop()
 	{
 		while (!glfwWindowShouldClose(window))
@@ -583,6 +629,11 @@ private:
 
 	void cleanup()
 	{
+		for (VkImageView view : SwapChainImageViews)
+		{
+			vkDestroyImageView(device, view, nullptr);
+		}
+
 		// swap chain images are automatically cleaned up once the swap chain is destroyed
 
 		vkDestroySwapchainKHR(device, SwapChain, nullptr);
