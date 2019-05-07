@@ -1,3 +1,5 @@
+#define NOMINMAX
+
 #define GLFW_INCLUDE_VULKAN
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <GLFW/glfw3.h>
@@ -12,6 +14,8 @@
 #include <vector>
 #include <optional>
 #include <set>
+#include <algorithm>
+
 
 #ifdef NDEBUG
 const bool EnableValidationLayer = false;;
@@ -28,6 +32,13 @@ struct QueueFamilyIndex
 	{
 		return graphic.has_value() && present.has_value();
 	}
+};
+
+struct SwapChainSupport
+{
+	VkSurfaceCapabilitiesKHR capabilities;
+	std::vector<VkSurfaceFormatKHR> formats;
+	std::vector<VkPresentModeKHR> modes;
 };
 
 class VulkanApplication
@@ -65,9 +76,16 @@ private:
 	VkDebugUtilsMessengerEXT messenger;
 	VkPhysicalDevice PhysicalDevice = VK_NULL_HANDLE;
 	VkPhysicalDeviceFeatures features = {};
+
+	const std::vector<const char*> extentions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 	VkDevice device;
 	VkQueue GraphicQueue;
 	VkQueue PresentQueue;
+
+	VkSwapchainKHR SwapChain;
+	std::vector<VkImage> SwapChainImages;
+	VkFormat SwapChainFormat;
+	VkExtent2D SwapChainExtent;
 
 	void InitVulkan()
 	{
@@ -76,6 +94,7 @@ private:
 		CreateSurface();
 		PickPhysicalDevice();
 		CreateLogicalDevice();
+		CreateSwapChain();
 	}
 
 	void DisplayAvailableLayers()
@@ -119,7 +138,6 @@ private:
 	void CreateInstance()
 	{
 		VkResult result;
-
 
 		// glfw extensions
 		uint32_t glfwExtensionCount = 0;
@@ -259,15 +277,20 @@ private:
 
 	bool IsDeviceSuitable(VkPhysicalDevice device)
 	{
-		/*
-		std::optional<uint32_t> QueueFamilyIndex = FindQueueFamilyIndex(device);
-		return QueueFamilyIndex.has_value();
-		*/
 		QueueFamilyIndex index = FindQueueFamilyIndex(device);
-		return index.IsComplete();
+
+		bool ExtensionSupport = CheckDeviceExtensionSupport(device);
+		bool SwapChainAdequate = false;
+
+		if (ExtensionSupport)
+		{
+			SwapChainSupport support = QuerySwapChainSupport(device);
+			SwapChainAdequate = !support.formats.empty() && !support.modes.empty();
+		}
+
+		return index.IsComplete() && ExtensionSupport&& SwapChainAdequate;
 	}
 
-	// std::optional<uint32_t> FindQueueFamilyIndex(VkPhysicalDevice device)
 	QueueFamilyIndex FindQueueFamilyIndex(VkPhysicalDevice device)
 	{
 		QueueFamilyIndex index;
@@ -286,7 +309,6 @@ private:
 
 				if ((family.queueCount > 0) && (family.queueFlags & VK_QUEUE_GRAPHICS_BIT))
 				{
-					// return i;
 					index.graphic = i;
 				}
 
@@ -300,14 +322,30 @@ private:
 
 				if (index.IsComplete())
 				{
-					// return index;
 					break;
 				}
 			}
 		}
 
-		// return std::nullopt;
 		return index;
+	}
+
+	bool CheckDeviceExtensionSupport(VkPhysicalDevice device)
+	{
+		uint32_t count;
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
+
+		std::vector<VkExtensionProperties> available(count);
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &count, available.data());
+
+		std::set<std::string> required(extentions.begin(), extentions.end());
+
+		for (const VkExtensionProperties& extension : available)
+		{
+			required.erase(extension.extensionName);
+		}
+
+		return required.empty();
 	}
 
 	void CreateLogicalDevice()
@@ -342,8 +380,8 @@ private:
 			QueueCreateInfos.data(),							// pQueueCreateInfos
 			EnableValidationLayer ? layers.size() : 0,			// enabledLayerCount
 			EnableValidationLayer ? layers.data() : nullptr,	// ppEnabledLayerNames
-			0,													// enabledExtensionCount
-			nullptr,											// ppEnabledExtensionNames
+			extentions.size(),									// enabledExtensionCount
+			extentions.data(),									// ppEnabledExtensionNames
 			&features											// pEnabledFeatures
 		};
 
@@ -386,6 +424,155 @@ private:
 		}
 	}
 
+	SwapChainSupport QuerySwapChainSupport(VkPhysicalDevice device)
+	{
+		SwapChainSupport support;
+
+		// capabilities
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &support.capabilities);
+
+		// formats
+		{
+			uint32_t count;
+			vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &count, nullptr);
+
+			if (count != 0)
+			{
+				support.formats.resize(count);
+				vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &count, support.formats.data());
+			}
+		}
+
+		// present modes
+		{
+			uint32_t count;
+			vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &count, nullptr);
+
+			if (count != 0)
+			{
+				support.modes.resize(count);
+				vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &count, support.modes.data());
+			}
+		}
+
+		return support;
+	}
+
+	VkSurfaceFormatKHR ChooseSwapChainSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& formats)
+	{
+		if (formats.size() == 1 && formats.begin()->format == VK_FORMAT_UNDEFINED)
+		{
+			return { VK_FORMAT_B8G8R8A8_UNORM, VK_COLORSPACE_SRGB_NONLINEAR_KHR };
+		}
+
+		for (VkSurfaceFormatKHR format : formats)
+		{
+			if (format.format == VK_FORMAT_B8G8R8A8_UNORM && format.colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR)
+			{
+				return format;
+			}
+		}
+
+		return *formats.begin();
+	}
+
+	VkPresentModeKHR ChooseSwapChainPresentMode(const std::vector<VkPresentModeKHR>& modes)
+	{
+		VkPresentModeKHR available = VK_PRESENT_MODE_FIFO_KHR;
+
+		for (VkPresentModeKHR mode : modes)
+		{
+			if (mode == VK_PRESENT_MODE_MAILBOX_KHR)
+			{
+				return mode;
+			}
+
+			if (mode == VK_PRESENT_MODE_IMMEDIATE_KHR)
+			{
+				available = mode;
+			}
+		}
+
+		return available;
+	}
+
+	VkExtent2D ChooseSwapChainExtent(const VkSurfaceCapabilitiesKHR& capabilities)
+	{
+		if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
+		{
+			return capabilities.currentExtent;
+		}
+		else
+		{
+			VkExtent2D extent = { WindowWidth, WindowHeight };
+
+			VkExtent2D min = capabilities.minImageExtent;
+			VkExtent2D max = capabilities.maxImageExtent;
+
+			extent.width = std::max(min.width, std::min(max.width, extent.width));
+			extent.height = std::max(min.height, std::min(max.height, extent.height));
+
+			return extent;
+		}
+	}
+
+	void CreateSwapChain()
+	{
+		SwapChainSupport support = QuerySwapChainSupport(PhysicalDevice);
+		VkSurfaceFormatKHR format = ChooseSwapChainSurfaceFormat(support.formats);
+		VkPresentModeKHR mode = ChooseSwapChainPresentMode(support.modes);
+		VkExtent2D extent = ChooseSwapChainExtent(support.capabilities);
+
+		uint32_t count = support.capabilities.minImageCount + 1;
+
+		if (support.capabilities.maxImageCount > 0 && count > support.capabilities.maxImageCount)
+		{
+			count = support.capabilities.maxImageCount;
+		}
+
+		QueueFamilyIndex index = FindQueueFamilyIndex(PhysicalDevice);
+		bool flag = index.graphic == index.present;
+		std::vector<uint32_t> indices = { index.graphic.value(), index.present.value() };
+
+		VkSwapchainCreateInfoKHR SwapChainCreateInfo = {
+			VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,					// sType
+			nullptr,														// pNext
+			0,																// flags
+			surface,														// surface
+			count,															// minImageCount
+			format.format,													// imageFormat
+			format.colorSpace,												// imageColorSpace
+			extent,															// imageExtent
+			1,																// imageArrayLayers
+			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,							// imageUsage
+			flag ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT,	// imageSharingMode
+			flag ? indices.size() : 0,										// queueFamilyIndexCount
+			flag ? indices.data() : nullptr,								// pQueueFamilyIndices
+			support.capabilities.currentTransform,							// preTransform
+			VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,								// compositeAlpha
+			mode,															// presentMode
+			VK_TRUE,														// clipped
+			VK_NULL_HANDLE													// oldSwapchain
+		};
+
+		VkResult result;
+
+		result = vkCreateSwapchainKHR(device, &SwapChainCreateInfo, nullptr, &SwapChain);
+
+		if (result != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create swap chain");
+		}
+
+		uint32_t ImageCount;
+		vkGetSwapchainImagesKHR(device, SwapChain, &ImageCount, nullptr);
+		SwapChainImages.resize(ImageCount);
+		vkGetSwapchainImagesKHR(device, SwapChain, &ImageCount, SwapChainImages.data());
+
+		SwapChainFormat = format.format;
+		SwapChainExtent = extent;
+	}
+
 	void MainLoop()
 	{
 		while (!glfwWindowShouldClose(window))
@@ -396,6 +583,10 @@ private:
 
 	void cleanup()
 	{
+		// swap chain images are automatically cleaned up once the swap chain is destroyed
+
+		vkDestroySwapchainKHR(device, SwapChain, nullptr);
+
 		// device VkQueue are implicitly cleaned up when the VkDevice is destroyed
 
 		vkDestroyDevice(device, nullptr);
