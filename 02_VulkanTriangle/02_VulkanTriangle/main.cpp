@@ -15,6 +15,7 @@
 #include <optional>
 #include <set>
 #include <algorithm>
+#include <fstream>
 
 
 #ifdef NDEBUG
@@ -97,6 +98,7 @@ private:
 		CreateLogicalDevice();
 		CreateSwapChain();
 		CreateImageViews();
+		CreateGraphicsPipeline();
 	}
 
 	void DisplayAvailableLayers()
@@ -617,6 +619,88 @@ private:
 
 			SwapChainImageViews.push_back(view);
 		}
+	}
+
+	static std::vector<char> ReadFile(const std::string& FileName)
+	{
+		std::ifstream file(FileName, std::ios::ate | std::ios::binary);
+
+		if (!file.is_open())
+		{
+			throw std::runtime_error("failed to open file");
+		}
+
+		size_t size = file.tellg();
+		std::vector<char> buffer(size);
+
+		file.seekg(0);
+		file.read(buffer.data(), size);
+
+		file.close();
+
+		return buffer;
+	}
+
+	VkShaderModule CreateShaderModule(const std::vector<char>& bytecode)
+	{
+		VkShaderModuleCreateInfo ShaderModuleCreateInfo = {
+			VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,		// sType
+			nullptr,											// pNext
+			0,													// flags
+			bytecode.size(),									// codeSize
+			reinterpret_cast<const uint32_t*>(bytecode.data())	// pCode
+		};
+
+		VkShaderModule module;
+		VkResult result = vkCreateShaderModule(device, &ShaderModuleCreateInfo, nullptr, &module);
+
+		if (result != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create shader module");
+		}
+
+		// the buffer with the code can be freed immediately after creating the shader module
+
+		return module;
+	}
+
+	void CreateGraphicsPipeline()
+	{
+		std::vector<char> VertCode = ReadFile("shaders/vert.spv");
+		std::vector<char> FragCode = ReadFile("shaders/frag.spv");
+
+		VkShaderModule VertModule = CreateShaderModule(VertCode);
+		VkShaderModule FragModule = CreateShaderModule(FragCode);
+
+		// the buffer with the code can be freed immediately after creating the shader module
+
+		VkPipelineShaderStageCreateInfo VertStageCreateInfo = {
+			VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,	// sType
+			nullptr,												// pNext
+			0,														// flags
+			VK_SHADER_STAGE_VERTEX_BIT,								// stage
+			VertModule,												// module
+			"main",													// pName
+			nullptr													// pSpecializationInfo
+		};
+
+		VkPipelineShaderStageCreateInfo FragStageCreateInfo = {
+			VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,	// sType
+			nullptr,												// pNext
+			0,														// flags
+			VK_SHADER_STAGE_FRAGMENT_BIT,							// stage
+			FragModule,												// module
+			"main",													// pName
+			nullptr													// pSpecializationInfo
+		};
+
+		std::vector<VkPipelineShaderStageCreateInfo> stages = { VertStageCreateInfo, FragStageCreateInfo };
+		
+		// bytecode compilation and linking happens during graphics pipeline creation
+		// so we can destroy shader modules as soon as pipeline creation is finished
+
+		vkDestroyShaderModule(device, VertModule, nullptr);
+		vkDestroyShaderModule(device, FragModule, nullptr);
 	}
 
 	void MainLoop()
