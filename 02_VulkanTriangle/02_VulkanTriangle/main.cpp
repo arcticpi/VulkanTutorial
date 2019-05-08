@@ -89,6 +89,8 @@ private:
 	VkExtent2D SwapChainExtent;
 	std::vector<VkImageView> SwapChainImageViews;
 
+	VkPipelineLayout PipelineLayout;
+
 	void InitVulkan()
 	{
 		CreateInstance();
@@ -666,6 +668,8 @@ private:
 
 	void CreateGraphicsPipeline()
 	{
+		VkResult result;
+
 		std::vector<char> VertCode = ReadFile("shaders/vert.spv");
 		std::vector<char> FragCode = ReadFile("shaders/frag.spv");
 
@@ -695,7 +699,136 @@ private:
 		};
 
 		std::vector<VkPipelineShaderStageCreateInfo> stages = { VertStageCreateInfo, FragStageCreateInfo };
-		
+
+		VkPipelineVertexInputStateCreateInfo VertexInputStateCreateInfo = {
+			VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,	// sType
+			nullptr,													// pNext
+			0,															// flags
+			0,															// vertexBindingDescriptionCount
+			nullptr,													// pVertexBindingDescriptions
+			0,															// vertexAttributeDescriptionCount
+			nullptr														// pVertexAttributeDescriptions
+		};
+
+		VkPipelineInputAssemblyStateCreateInfo InputAssemblyStateCreateInfo = {
+			VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,	// sType
+			nullptr,														// pNext
+			0,																// flags
+			VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,							// topology
+			VK_FALSE														// primitiveRestartEnable
+		};
+
+		VkViewport viewport = {
+			0.0f,					// x
+			0.0f,					// y
+			SwapChainExtent.width,	// width
+			SwapChainExtent.height,	// height
+			0.0f,					// minDepth
+			1.0f					// maxDepth
+		};
+
+		VkRect2D scissor = {
+			{0, 0},			// offset
+			SwapChainExtent	// extent
+		};
+
+		VkPipelineViewportStateCreateInfo ViewportStateCreateInfo = {
+			VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,	// sType
+			nullptr,												// pNext
+			0,														// flags
+			1,														// viewportCount
+			&viewport,												// pViewports
+			0,														// scissorCount
+			&scissor												// pScissors
+		};
+
+		VkPipelineRasterizationStateCreateInfo RasterizationStateCreateInfo = {
+			VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,	// sType
+			nullptr,													// pNext
+			0,															// flags
+			VK_FALSE,													// depthClampEnable
+			VK_FALSE,													// rasterizerDiscardEnable
+			VK_POLYGON_MODE_FILL,										// polygonMode
+			VK_CULL_MODE_BACK_BIT,										// cullMode
+			VK_FRONT_FACE_CLOCKWISE,									// frontFace
+			VK_FALSE,													// depthBiasEnable
+			0.0f,														// depthBiasConstantFactor
+			0.0f,														// depthBiasClamp
+			0.0f,														// depthBiasSlopeFactor
+			1.0f														// lineWidth
+		};
+
+		VkPipelineMultisampleStateCreateInfo MultisampleStateCreateInfo = {
+			VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,	// sType
+			nullptr,													// pNext
+			0,															// flags
+			VK_SAMPLE_COUNT_1_BIT,										// rasterizationSamples;
+			VK_FALSE,													// sampleShadingEnable
+			1.0f,														// minSampleShading
+			nullptr,													// pSampleMask
+			VK_FALSE,													// alphaToCoverageEnable
+			VK_FALSE,													// alphaToOneEnable
+		};
+
+		// VkPipelineDepthStencilStateCreateInfo
+
+		VkColorComponentFlags ColorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+		VkPipelineColorBlendAttachmentState ColorBlendAttachmentState = {
+			VK_FALSE,				// blendEnable
+			VK_BLEND_FACTOR_ONE,	// srcColorBlendFactor
+			VK_BLEND_FACTOR_ZERO,	// dstColorBlendFactor
+			VK_BLEND_OP_ADD,		// colorBlendOp
+			VK_BLEND_FACTOR_ONE,	// srcAlphaBlendFactor
+			VK_BLEND_FACTOR_ZERO,	// dstAlphaBlendFactor
+			VK_BLEND_OP_ADD,		// alphaBlendOp
+			ColorWriteMask			// colorWriteMask
+		};
+
+		// alpha blending : new color blended with old color based on its opacity
+		/*
+		VkPipelineColorBlendAttachmentState AlphaBlending = {
+			VK_TRUE,								// blendEnable
+			VK_BLEND_FACTOR_SRC_ALPHA,				// srcColorBlendFactor
+			VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,	// dstColorBlendFactor
+			VK_BLEND_OP_ADD,						// colorBlendOp
+			VK_BLEND_FACTOR_ONE,					// srcAlphaBlendFactor
+			VK_BLEND_FACTOR_ZERO,					// dstAlphaBlendFactor
+			VK_BLEND_OP_ADD,						// alphaBlendOp
+			ColorWriteMask							// colorWriteMask
+		};
+		*/
+
+		VkPipelineColorBlendStateCreateInfo ColorBlendStateCreateInfo = {
+			VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,	// sType
+			nullptr,													// pNext
+			0,															// flags
+			VK_FALSE,													// logicOpEnable
+			VK_LOGIC_OP_COPY,											// logicOp
+			1,															// attachmentCount
+			&ColorBlendAttachmentState,									// pAttachments
+			{0.0f, 0.0f, 0.0f, 0.0f}									// blendConstants
+		};
+
+		// VkDynamicState & VkPipelineDynamicStateCreateInfo
+
+		VkPipelineLayoutCreateInfo PipelineLayoutCreateInfo = {
+			VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,	// sType
+			nullptr,										// pNext
+			0,												// flags
+			0,												// setLayoutCount
+			nullptr,										// pSetLayouts
+			0,												// pushConstantRangeCount
+			nullptr											// pPushConstantRanges
+		};
+
+		result = vkCreatePipelineLayout(device, &PipelineLayoutCreateInfo, nullptr, &PipelineLayout);
+
+		if (result != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create pipeline layout");
+		}
+
 		// bytecode compilation and linking happens during graphics pipeline creation
 		// so we can destroy shader modules as soon as pipeline creation is finished
 
@@ -713,6 +846,8 @@ private:
 
 	void cleanup()
 	{
+		vkDestroyPipelineLayout(device, PipelineLayout, nullptr);
+
 		for (VkImageView view : SwapChainImageViews)
 		{
 			vkDestroyImageView(device, view, nullptr);
