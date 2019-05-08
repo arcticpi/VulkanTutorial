@@ -17,7 +17,6 @@
 #include <algorithm>
 #include <fstream>
 
-
 #ifdef NDEBUG
 const bool EnableValidationLayer = false;;
 #else
@@ -91,6 +90,7 @@ private:
 
 	VkRenderPass RenderPass;
 	VkPipelineLayout PipelineLayout;
+	VkPipeline GraphicsPipeline;
 
 	void InitVulkan()
 	{
@@ -792,7 +792,7 @@ private:
 			0,														// flags
 			1,														// viewportCount
 			&viewport,												// pViewports
-			0,														// scissorCount
+			1,														// scissorCount
 			&scissor												// pScissors
 		};
 
@@ -883,6 +883,35 @@ private:
 			throw std::runtime_error("failed to create pipeline layout");
 		}
 
+		VkGraphicsPipelineCreateInfo GraphicsPipelineCreateInfo = {
+			VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,	// sType
+			nullptr,											// pNext
+			0,													// flags
+			2,													// stageCount
+			stages.data(),										// pStages
+			&VertexInputStateCreateInfo,						// pVertexInputState
+			&InputAssemblyStateCreateInfo,						// pInputAssemblyState
+			nullptr,											// pTessellationState
+			&ViewportStateCreateInfo,							// pViewportState
+			&RasterizationStateCreateInfo,						// pRasterizationState
+			&MultisampleStateCreateInfo,						// pMultisampleState
+			nullptr,											// pDepthStencilState
+			&ColorBlendStateCreateInfo,							// pColorBlendState
+			nullptr,											// pDynamicState
+			PipelineLayout,										// layout
+			RenderPass,											// renderPass
+			0,													// subpass
+			nullptr,											// basePipelineHandle
+			-1													// basePipelineIndex
+		};
+
+		result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &GraphicsPipelineCreateInfo, nullptr, &GraphicsPipeline);
+
+		if (result != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create graphics pipeline");
+		}
+
 		// bytecode compilation and linking happens during graphics pipeline creation
 		// so we can destroy shader modules as soon as pipeline creation is finished
 
@@ -900,6 +929,7 @@ private:
 
 	void cleanup()
 	{
+		vkDestroyPipeline(device, GraphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, PipelineLayout, nullptr);
 		vkDestroyRenderPass(device, RenderPass, nullptr);
 
