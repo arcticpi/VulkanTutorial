@@ -89,6 +89,7 @@ private:
 	VkExtent2D SwapChainExtent;
 	std::vector<VkImageView> SwapChainImageViews;
 
+	VkRenderPass RenderPass;
 	VkPipelineLayout PipelineLayout;
 
 	void InitVulkan()
@@ -100,6 +101,7 @@ private:
 		CreateLogicalDevice();
 		CreateSwapChain();
 		CreateImageViews();
+		CreateRenderPass();
 		CreateGraphicsPipeline();
 	}
 
@@ -666,6 +668,58 @@ private:
 		return module;
 	}
 
+	void CreateRenderPass()
+	{
+		VkAttachmentDescription AttachmentDescription = {
+			0,									// flags
+			SwapChainFormat,					// format
+			VK_SAMPLE_COUNT_1_BIT,				// samples
+			VK_ATTACHMENT_LOAD_OP_CLEAR,		// loadOp
+			VK_ATTACHMENT_STORE_OP_STORE,		// storeOp
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,	// stencilLoadOp
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,	// stencilStoreOp
+			VK_IMAGE_LAYOUT_UNDEFINED,			// initialLayout
+			VK_IMAGE_LAYOUT_PRESENT_SRC_KHR		// finalLayout
+		};
+
+		VkAttachmentReference AttachmentReference = {
+			0,											// attachment
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL	// layout
+		};
+
+		VkSubpassDescription SubpassDescription = {
+			0,									// flags
+			VK_PIPELINE_BIND_POINT_GRAPHICS,	// pipelineBindPoint
+			0,									// inputAttachmentCount
+			nullptr,							// pInputAttachments
+			1,									// colorAttachmentCount
+			&AttachmentReference,				// pColorAttachments
+			nullptr,							// pResolveAttachments
+			nullptr,							// pDepthStencilAttachment
+			0,									// preserveAttachmentCount
+			nullptr								// pPreserveAttachments
+		};
+
+		VkRenderPassCreateInfo RenderPassCreateInfo = {
+			VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,	// sType
+			nullptr,									// pNext
+			0,											// flags
+			1,											// attachmentCount
+			&AttachmentDescription,						// pAttachments
+			1,											// subpassCount
+			&SubpassDescription,						// pSubpasses
+			0,											// dependencyCount
+			nullptr										// pDependencies
+		};
+
+		VkResult result = vkCreateRenderPass(device, &RenderPassCreateInfo, nullptr, &RenderPass);
+
+		if (result != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create render pass");
+		}
+	}
+
 	void CreateGraphicsPipeline()
 	{
 		VkResult result;
@@ -847,6 +901,7 @@ private:
 	void cleanup()
 	{
 		vkDestroyPipelineLayout(device, PipelineLayout, nullptr);
+		vkDestroyRenderPass(device, RenderPass, nullptr);
 
 		for (VkImageView view : SwapChainImageViews)
 		{
