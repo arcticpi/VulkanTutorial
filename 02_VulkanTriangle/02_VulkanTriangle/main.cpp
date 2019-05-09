@@ -97,8 +97,11 @@ private:
 	VkCommandPool CommandPool;
 	std::vector<VkCommandBuffer> CommandBuffers;
 
-	VkSemaphore ImageAvailableSemaphore;
-	VkSemaphore RenderFinishedSemaphore;
+	const int MAX_FRAMES_IN_FLIGHT = 2;
+	size_t CurrentFrame = 0;
+	std::vector<VkSemaphore> ImageAvailableSemaphore;
+	std::vector<VkSemaphore> RenderFinishedSemaphore;
+	std::vector<VkFence> fences;
 
 	void InitVulkan()
 	{
@@ -114,7 +117,7 @@ private:
 		CreateFramebuffers();
 		CreateCommandPool();
 		CreateCommandBuffers();
-		CreateSemaphores();
+		CreateSemaphoresAndFences();
 	}
 
 	void DisplayAvailableLayers()
@@ -1082,20 +1085,34 @@ private:
 		}
 	}
 
-	void CreateSemaphores()
+	void CreateSemaphoresAndFences()
 	{
+		ImageAvailableSemaphore.resize(MAX_FRAMES_IN_FLIGHT);
+		RenderFinishedSemaphore.resize(MAX_FRAMES_IN_FLIGHT);
+		fences.resize(MAX_FRAMES_IN_FLIGHT);
+
 		VkSemaphoreCreateInfo SemaphoreCreateInfo = {
 			VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,	// sType
 			nullptr,									// pNext
 			0											// flags
 		};
 
-		VkResult ImageAvailableResult = vkCreateSemaphore(device, &SemaphoreCreateInfo, nullptr, &ImageAvailableSemaphore);
-		VkResult RenderFinishedResult = vkCreateSemaphore(device, &SemaphoreCreateInfo, nullptr, &RenderFinishedSemaphore);
+		VkFenceCreateInfo FenceCreateInfo = {
+			VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,	// sType
+			nullptr,								// pNext
+			VK_FENCE_CREATE_SIGNALED_BIT			// flags
+		};
 
-		if (ImageAvailableResult || RenderFinishedResult)
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			throw std::runtime_error("failed to create semaphores");
+			VkResult ImageAvailableResult = vkCreateSemaphore(device, &SemaphoreCreateInfo, nullptr, &ImageAvailableSemaphore.at(i));
+			VkResult RenderFinishedResult = vkCreateSemaphore(device, &SemaphoreCreateInfo, nullptr, &RenderFinishedSemaphore.at(i));
+			VkResult FenceResult = vkCreateFence(device, &FenceCreateInfo, nullptr, &fences.at(i));
+
+			if (ImageAvailableResult || RenderFinishedResult || FenceResult)
+			{
+				throw std::runtime_error("failed to create synchronization objects for a frame");
+			}
 		}
 	}
 
@@ -1112,13 +1129,16 @@ private:
 
 	void DrawFrame()
 	{
+		vkWaitForFences(device, 1, &fences.at(CurrentFrame), VK_TRUE, std::numeric_limits<uint64_t>::max());
+		vkResetFences(device, 1, &fences.at(CurrentFrame));
+
 		uint32_t index;
 
-		vkAcquireNextImageKHR(device, SwapChain, std::numeric_limits<uint64_t>::max(), ImageAvailableSemaphore, VK_NULL_HANDLE, &index);
+		vkAcquireNextImageKHR(device, SwapChain, std::numeric_limits<uint64_t>::max(), ImageAvailableSemaphore.at(CurrentFrame), VK_NULL_HANDLE, &index);
 
-		std::vector<VkSemaphore> WaitSemaphores = { ImageAvailableSemaphore };
+		std::vector<VkSemaphore> WaitSemaphores = { ImageAvailableSemaphore.at(CurrentFrame) };
 		std::vector<VkPipelineStageFlags> stages = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-		std::vector<VkSemaphore> SignalSemaphores = { RenderFinishedSemaphore };
+		std::vector<VkSemaphore> SignalSemaphores = { RenderFinishedSemaphore.at(CurrentFrame) };
 
 		VkSubmitInfo SubmitInfo = {
 			VK_STRUCTURE_TYPE_SUBMIT_INFO,	// sType
@@ -1132,7 +1152,7 @@ private:
 			SignalSemaphores.data()			// pSignalSemaphores
 		};
 
-		VkResult result = vkQueueSubmit(GraphicQueue, 1, &SubmitInfo, VK_NULL_HANDLE);
+		VkResult result = vkQueueSubmit(GraphicQueue, 1, &SubmitInfo, fences.at(CurrentFrame));
 
 		if (result != VK_SUCCESS)
 		{
@@ -1153,12 +1173,18 @@ private:
 		};
 
 		vkQueuePresentKHR(PresentQueue, &PresentInfo);
+
+		CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
 	void cleanup()
 	{
-		vkDestroySemaphore(device, RenderFinishedSemaphore, nullptr);
-		vkDestroySemaphore(device, ImageAvailableSemaphore, nullptr);
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			vkDestroyFence(device, fences.at(i), nullptr);
+			vkDestroySemaphore(device, RenderFinishedSemaphore.at(i), nullptr);
+			vkDestroySemaphore(device, ImageAvailableSemaphore.at(i), nullptr);
+		}
 
 		// command buffers are automatically freed when their command pool is destroyed
 
