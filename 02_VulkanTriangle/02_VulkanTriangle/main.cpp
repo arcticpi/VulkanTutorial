@@ -97,6 +97,9 @@ private:
 	VkCommandPool CommandPool;
 	std::vector<VkCommandBuffer> CommandBuffers;
 
+	VkSemaphore ImageAvailableSemaphore;
+	VkSemaphore RenderFinishedSemaphore;
+
 	void InitVulkan()
 	{
 		CreateInstance();
@@ -111,6 +114,7 @@ private:
 		CreateFramebuffers();
 		CreateCommandPool();
 		CreateCommandBuffers();
+		CreateSemaphores();
 	}
 
 	void DisplayAvailableLayers()
@@ -708,6 +712,18 @@ private:
 			nullptr								// pPreserveAttachments
 		};
 
+		VkAccessFlags flags = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+		VkSubpassDependency dependecy = {
+			VK_SUBPASS_EXTERNAL,							// srcSubpass
+			0,												// dstSubpass
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,	// srcStageMask
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,	// dstStageMask
+			0,												// srcAccessMask
+			flags,											// dstAccessMask
+			0												// dependencyFlags
+		};
+
 		VkRenderPassCreateInfo RenderPassCreateInfo = {
 			VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,	// sType
 			nullptr,									// pNext
@@ -716,8 +732,8 @@ private:
 			&AttachmentDescription,						// pAttachments
 			1,											// subpassCount
 			&SubpassDescription,						// pSubpasses
-			0,											// dependencyCount
-			nullptr										// pDependencies
+			1,											// dependencyCount
+			&dependecy									// pDependencies
 		};
 
 		VkResult result = vkCreateRenderPass(device, &RenderPassCreateInfo, nullptr, &RenderPass);
@@ -1066,16 +1082,84 @@ private:
 		}
 	}
 
+	void CreateSemaphores()
+	{
+		VkSemaphoreCreateInfo SemaphoreCreateInfo = {
+			VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,	// sType
+			nullptr,									// pNext
+			0											// flags
+		};
+
+		VkResult ImageAvailableResult = vkCreateSemaphore(device, &SemaphoreCreateInfo, nullptr, &ImageAvailableSemaphore);
+		VkResult RenderFinishedResult = vkCreateSemaphore(device, &SemaphoreCreateInfo, nullptr, &RenderFinishedSemaphore);
+
+		if (ImageAvailableResult || RenderFinishedResult)
+		{
+			throw std::runtime_error("failed to create semaphores");
+		}
+	}
+
 	void MainLoop()
 	{
 		while (!glfwWindowShouldClose(window))
 		{
 			glfwPollEvents();
+			DrawFrame();
 		}
+
+		vkDeviceWaitIdle(device);
+	}
+
+	void DrawFrame()
+	{
+		uint32_t index;
+
+		vkAcquireNextImageKHR(device, SwapChain, std::numeric_limits<uint64_t>::max(), ImageAvailableSemaphore, VK_NULL_HANDLE, &index);
+
+		std::vector<VkSemaphore> WaitSemaphores = { ImageAvailableSemaphore };
+		std::vector<VkPipelineStageFlags> stages = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+		std::vector<VkSemaphore> SignalSemaphores = { RenderFinishedSemaphore };
+
+		VkSubmitInfo SubmitInfo = {
+			VK_STRUCTURE_TYPE_SUBMIT_INFO,	// sType
+			nullptr,						// pNext
+			1,								// waitSemaphoreCount
+			WaitSemaphores.data(),			// pWaitSemaphores
+			stages.data(),					// pWaitDstStageMask
+			1,								// commandBufferCount
+			&CommandBuffers.at(index),		// pCommandBuffers
+			1,								// signalSemaphoreCount
+			SignalSemaphores.data()			// pSignalSemaphores
+		};
+
+		VkResult result = vkQueueSubmit(GraphicQueue, 1, &SubmitInfo, VK_NULL_HANDLE);
+
+		if (result != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to submit draw command buffer");
+		}
+
+		std::vector<VkSwapchainKHR> swapchains = { SwapChain };
+
+		VkPresentInfoKHR PresentInfo = {
+			VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,	// sType
+			nullptr,							// pNext
+			1,									// waitSemaphoreCount
+			SignalSemaphores.data(),			// pWaitSemaphores
+			1,									// swapchainCount
+			swapchains.data(),					// pSwapchains
+			&index,								// pImageIndices
+			nullptr								// pResults
+		};
+
+		vkQueuePresentKHR(PresentQueue, &PresentInfo);
 	}
 
 	void cleanup()
 	{
+		vkDestroySemaphore(device, RenderFinishedSemaphore, nullptr);
+		vkDestroySemaphore(device, ImageAvailableSemaphore, nullptr);
+
 		// command buffers are automatically freed when their command pool is destroyed
 
 		vkDestroyCommandPool(device, CommandPool, nullptr);
