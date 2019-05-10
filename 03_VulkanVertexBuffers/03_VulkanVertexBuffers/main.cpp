@@ -82,12 +82,6 @@ struct Vertex
 	}
 };
 
-const std::vector<Vertex> vertices = {
-	{ {+0.0f, -0.5f}, {1.0f, 0.5f, 0.0f} },
-	{ {+0.5f, +0.5f}, {0.0f, 1.0f, 1.0f} },
-	{ {-0.5f, +0.5f}, {1.0f, 0.0f, 1.0f} }
-};
-
 class VulkanApplication
 {
 public:
@@ -161,8 +155,19 @@ private:
 
 	bool FramebufferResized = false;
 
+	const std::vector<Vertex> vertices = {
+		{ {-0.5f, -0.5f}, {1.0f, 0.5f, 0.0f} },
+		{ {-0.5f, +0.5f}, {1.0f, 0.0f, 1.0f} },
+		{ {+0.5f, -0.5f}, {1.0f, 1.0f, 0.0f} },
+		{ {+0.5f, +0.5f}, {0.0f, 1.0f, 1.0f} }
+	};
+
+	const std::vector<uint16_t> indices = { 0, 2, 1, 2, 3, 1 };
+
 	VkBuffer VertexBuffer;
 	VkDeviceMemory VertexBufferMemory;
+	VkBuffer IndexBuffer;
+	VkDeviceMemory IndexBufferMemory;
 
 	void InitVulkan()
 	{
@@ -178,6 +183,7 @@ private:
 		CreateFramebuffers();
 		CreateCommandPool();
 		CreateVertexBuffer();
+		CreateIndexBuffer();
 		CreateCommandBuffers();
 		CreateSemaphoresAndFences();
 	}
@@ -1115,6 +1121,34 @@ private:
 		vkFreeMemory(device, StagingBufferMemory, nullptr);
 	}
 
+	void CreateIndexBuffer()
+	{
+		VkBuffer StagingBuffer;
+		VkDeviceMemory StagingBufferMemory;
+		// VkDeviceSize size = sizeof(uint16_t) * indices.size();
+		VkDeviceSize size = sizeof(indices.at(0)) * indices.size();
+		VkBufferUsageFlags usage;
+		VkMemoryPropertyFlags properties;
+
+		usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+		properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+		CreateBuffer(size, usage, properties, StagingBuffer, StagingBufferMemory);
+
+		void* data;
+		vkMapMemory(device, StagingBufferMemory, 0, size, 0, &data);
+		memcpy(data, indices.data(), size);
+		vkUnmapMemory(device, StagingBufferMemory);
+
+		usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+		properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+		CreateBuffer(size, usage, properties, IndexBuffer, IndexBufferMemory);
+
+		CopyBuffer(StagingBuffer, IndexBuffer, size);
+
+		vkDestroyBuffer(device, StagingBuffer, nullptr);
+		vkFreeMemory(device, StagingBufferMemory, nullptr);
+	}
+
 	void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory)
 	{
 		VkResult result;
@@ -1325,7 +1359,11 @@ private:
 			std::vector<VkDeviceSize> offsets = { 0 };
 			vkCmdBindVertexBuffers(CommandBuffers[i], 0, 1, VertexBuffers.data(), offsets.data());
 
-			vkCmdDraw(CommandBuffers[i], vertices.size(), 1, 0, 0);
+			VkIndexType IndexType = sizeof(indices.at(0)) == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
+			vkCmdBindIndexBuffer(CommandBuffers[i], IndexBuffer, 0, IndexType);
+
+			// vkCmdDraw(CommandBuffers[i], vertices.size(), 1, 0, 0);
+			vkCmdDrawIndexed(CommandBuffers[i], indices.size(), 1, 0, 0, 0);
 
 			vkCmdEndRenderPass(CommandBuffers[i]);
 
@@ -1455,6 +1493,9 @@ private:
 	void cleanup()
 	{
 		CleanupSwapchain();
+
+		vkDestroyBuffer(device, IndexBuffer, nullptr);
+		vkFreeMemory(device, IndexBufferMemory, nullptr);
 
 		vkDestroyBuffer(device, VertexBuffer, nullptr);
 		vkFreeMemory(device, VertexBufferMemory, nullptr);
