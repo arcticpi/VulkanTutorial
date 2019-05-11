@@ -183,6 +183,9 @@ private:
 	std::vector<VkBuffer> UniformBuffers;
 	std::vector<VkDeviceMemory> UniformBuffersMemory;
 
+	VkDescriptorPool DescriptorPool;
+	std::vector<VkDescriptorSet> DescriptorSets;
+
 	void InitVulkan()
 	{
 		CreateInstance();
@@ -200,6 +203,8 @@ private:
 		CreateVertexBuffer();
 		CreateIndexBuffer();
 		CreateUniformBuffers();
+		CreateDescriptorPool();
+		CreateDescriptorSets();
 		CreateCommandBuffers();
 		CreateSemaphoresAndFences();
 	}
@@ -703,6 +708,8 @@ private:
 		CreateGraphicsPipeline();
 		CreateFramebuffers();
 		CreateUniformBuffers();
+		CreateDescriptorPool();
+		CreateDescriptorSets();
 		CreateCommandBuffers();
 	}
 
@@ -944,8 +951,8 @@ private:
 			VK_FALSE,													// depthClampEnable
 			VK_FALSE,													// rasterizerDiscardEnable
 			VK_POLYGON_MODE_FILL,										// polygonMode
-			VK_CULL_MODE_BACK_BIT,										// cullMode
-			VK_FRONT_FACE_CLOCKWISE,									// frontFace
+			VK_CULL_MODE_BACK_BIT,											// cullMode
+			VK_FRONT_FACE_COUNTER_CLOCKWISE,							// frontFace
 			VK_FALSE,													// depthBiasEnable
 			0.0f,														// depthBiasConstantFactor
 			0.0f,														// depthBiasClamp
@@ -1194,7 +1201,7 @@ private:
 
 		ubo.model = glm::rotate(glm::mat4(1.0f), DeltaTime * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 
-		ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 
 		float AspectRatio = SwapChainExtent.width / static_cast<float>(SwapChainExtent.height);
 		ubo.proj = glm::perspective(glm::radians(45.0f), AspectRatio, 0.1f, 10.0f);
@@ -1205,6 +1212,30 @@ private:
 		vkMapMemory(device, UniformBuffersMemory[index], 0, size, 0, &data);
 		memcpy(data, &ubo, size);
 		vkUnmapMemory(device, UniformBuffersMemory[index]);
+	}
+
+	void CreateDescriptorPool()
+	{
+		VkDescriptorPoolSize DescriptorPoolSize = {
+			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,	// type
+			SwapChainImages.size()				// descriptorCount
+		};
+
+		VkDescriptorPoolCreateInfo DescriptorPoolCreateInfo = {
+			VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,	// sType
+			nullptr,										// pNext
+			0,												// flags
+			SwapChainImages.size(),							// maxSets
+			1,												// poolSizeCount
+			&DescriptorPoolSize								// pPoolSizes
+		};
+
+		VkResult result = vkCreateDescriptorPool(device, &DescriptorPoolCreateInfo, nullptr, &DescriptorPool);
+
+		if (result != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create descriptor pool");
+		}
 	}
 
 	void CreateDescriptorSetLayout()
@@ -1233,7 +1264,54 @@ private:
 		}
 	}
 
-	void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory)
+	void CreateDescriptorSets()
+	{
+		size_t size = SwapChainImages.size();
+		std::vector<VkDescriptorSetLayout> layouts(size, DescriptorSetLayout);
+
+		VkDescriptorSetAllocateInfo DescriptorSetAllocateInfo = {
+			VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,	// sType
+			nullptr,										// pNext
+			DescriptorPool,									// descriptorPool
+			size,											// descriptorSetCount
+			layouts.data()									// pSetLayouts
+		};
+
+		DescriptorSets.resize(size);
+
+		VkResult result = vkAllocateDescriptorSets(device, &DescriptorSetAllocateInfo, DescriptorSets.data());
+
+		if (result != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to allocate descriptor sets");
+		}
+
+		for (size_t i = 0; i < size; i++)
+		{
+			VkDescriptorBufferInfo DescriptorBufferInfo = {
+				UniformBuffers[i],	// buffer
+				0,					// offset
+				VK_WHOLE_SIZE		// range
+			};
+
+			VkWriteDescriptorSet WriteDescriptorSet = {
+				VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,	// sType
+				nullptr,								// pNext
+				DescriptorSets[i],						// dstSet
+				0,										// dstBinding
+				0,										// dstArrayElement
+				1,										// descriptorCount
+				VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,		// descriptorType
+				nullptr,								// pImageInfo
+				&DescriptorBufferInfo,					// pBufferInfo
+				nullptr									// pTexelBufferView
+			};
+
+			vkUpdateDescriptorSets(device, 1, &WriteDescriptorSet, 0, nullptr);
+		}
+	}
+
+	void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer & buffer, VkDeviceMemory & memory)
 	{
 		VkResult result;
 
@@ -1446,6 +1524,8 @@ private:
 			VkIndexType IndexType = sizeof(indices.at(0)) == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
 			vkCmdBindIndexBuffer(CommandBuffers[i], IndexBuffer, 0, IndexType);
 
+			vkCmdBindDescriptorSets(CommandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout, 0, 1, DescriptorSets.data(), 0, nullptr);
+
 			// vkCmdDraw(CommandBuffers[i], vertices.size(), 1, 0, 0);
 			vkCmdDrawIndexed(CommandBuffers[i], indices.size(), 1, 0, 0, 0);
 
@@ -1645,6 +1725,10 @@ private:
 			vkDestroyBuffer(device, UniformBuffers[i], nullptr);
 			vkFreeMemory(device, UniformBuffersMemory[i], nullptr);
 		}
+
+		// descriptor sets are automatically freed when the descriptor pool is destroyed
+
+		vkDestroyDescriptorPool(device, DescriptorPool, nullptr);
 	}
 };
 
