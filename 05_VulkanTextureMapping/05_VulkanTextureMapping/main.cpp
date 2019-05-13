@@ -138,7 +138,6 @@ private:
 	VkSurfaceKHR surface;
 	VkDebugUtilsMessengerEXT messenger;
 	VkPhysicalDevice PhysicalDevice = VK_NULL_HANDLE;
-	VkPhysicalDeviceFeatures features = {};
 
 	const std::vector<const char*> extentions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 	VkDevice device;
@@ -191,6 +190,8 @@ private:
 
 	VkImage TextureImage;
 	VkDeviceMemory TextureImageMemory;
+	VkImageView TextureImageView;
+	VkSampler TextureSampler;
 
 	void InitVulkan()
 	{
@@ -207,6 +208,8 @@ private:
 		CreateFramebuffers();
 		CreateCommandPool();
 		CreateTextureImage();
+		CreateTextureImageView();
+		CreateTextureSampler();
 		CreateVertexBuffer();
 		CreateIndexBuffer();
 		CreateUniformBuffers();
@@ -407,7 +410,10 @@ private:
 			SwapChainAdequate = !support.formats.empty() && !support.modes.empty();
 		}
 
-		return index.IsComplete() && ExtensionSupport&& SwapChainAdequate;
+		VkPhysicalDeviceFeatures features;
+		vkGetPhysicalDeviceFeatures(device, &features);
+
+		return index.IsComplete() && ExtensionSupport && SwapChainAdequate && features.samplerAnisotropy;
 	}
 
 	QueueFamilyIndex FindQueueFamilyIndex(VkPhysicalDevice device)
@@ -490,6 +496,9 @@ private:
 
 			QueueCreateInfos.push_back(QueueCreateInfo);
 		}
+
+		VkPhysicalDeviceFeatures features = {};
+		features.samplerAnisotropy = VK_TRUE;
 
 		VkDeviceCreateInfo DeviceCreateInfo = {
 			VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,				// sType
@@ -727,40 +736,7 @@ private:
 
 		for (VkImage image : SwapChainImages)
 		{
-			VkComponentMapping components = {
-				VK_COMPONENT_SWIZZLE_IDENTITY,	//	r
-				VK_COMPONENT_SWIZZLE_IDENTITY,	//	g
-				VK_COMPONENT_SWIZZLE_IDENTITY,	//	b
-				VK_COMPONENT_SWIZZLE_IDENTITY	//	a
-			};
-
-			VkImageSubresourceRange SubresourceRange = {
-				VK_IMAGE_ASPECT_COLOR_BIT,	//	aspectMask
-				0,							//	baseMipLevel
-				1,							//	levelCount
-				0,							//	baseArrayLayer
-				1							//	layerCount
-			};
-
-			VkImageViewCreateInfo ImageViewCreateInfo = {
-				VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,	// sType
-				nullptr,									// pNext
-				0,											// flags
-				image,										// image
-				VK_IMAGE_VIEW_TYPE_2D,						// viewType
-				SwapChainFormat,							// format
-				components,									// components
-				SubresourceRange							// subresourceRange
-			};
-
-			VkImageView view;
-			VkResult result = vkCreateImageView(device, &ImageViewCreateInfo, nullptr, &view);
-
-			if (result != VK_SUCCESS)
-			{
-				throw std::runtime_error("failed to create image views");
-			}
-
+			VkImageView view = CreateImageView(image, SwapChainFormat);
 			SwapChainImageViews.push_back(view);
 		}
 	}
@@ -1298,6 +1274,82 @@ private:
 		vkCmdCopyBufferToImage(CommandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
 		EndSingleTimeCommands(CommandBuffer);
+	}
+
+	void CreateTextureImageView()
+	{
+		TextureImageView = CreateImageView(TextureImage, VK_FORMAT_R8G8B8A8_UNORM);
+	}
+
+	VkImageView CreateImageView(VkImage image, VkFormat format)
+	{
+		VkImageView view;
+
+		VkComponentMapping components = {
+			VK_COMPONENT_SWIZZLE_IDENTITY,	//	r
+			VK_COMPONENT_SWIZZLE_IDENTITY,	//	g
+			VK_COMPONENT_SWIZZLE_IDENTITY,	//	b
+			VK_COMPONENT_SWIZZLE_IDENTITY	//	a
+		};
+
+		VkImageSubresourceRange range = {
+			VK_IMAGE_ASPECT_COLOR_BIT,	//	aspectMask
+			0,							//	baseMipLevel
+			1,							//	levelCount
+			0,							//	baseArrayLayer
+			1							//	layerCount
+		};
+
+		VkImageViewCreateInfo ImageViewCreateInfo = {
+			VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,	// sType
+			nullptr,									// pNext
+			0,											// flags
+			image,										// image
+			VK_IMAGE_VIEW_TYPE_2D,						// viewType
+			format,										// format
+			components,									// components
+			range										// subresourceRange
+		};
+
+		VkResult result = vkCreateImageView(device, &ImageViewCreateInfo, nullptr, &view);
+
+		if (result != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create image view");
+		}
+
+		return view;
+	}
+
+	void CreateTextureSampler()
+	{
+		VkSamplerCreateInfo SamplerCreateInfo = {
+			VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,	// sType
+			nullptr,								// pNext
+			0,										// flags
+			VK_FILTER_LINEAR,						// magFilter
+			VK_FILTER_LINEAR,						// minFilter
+			VK_SAMPLER_MIPMAP_MODE_LINEAR,			// mipmapMode
+			VK_SAMPLER_ADDRESS_MODE_REPEAT,			// addressModeU
+			VK_SAMPLER_ADDRESS_MODE_REPEAT,			// addressModeV
+			VK_SAMPLER_ADDRESS_MODE_REPEAT,			// addressModeW
+			0.0f,									// mipLodBias
+			VK_TRUE,								// anisotropyEnable
+			16,										// maxAnisotropy
+			VK_FALSE,								// compareEnable
+			VK_COMPARE_OP_ALWAYS,					// compareOp
+			0.0f,									// minLod
+			0.0f,									// maxLod
+			VK_BORDER_COLOR_INT_OPAQUE_BLACK,		// borderColor
+			VK_FALSE								// unnormalizedCoordinates
+		};
+
+		VkResult result = vkCreateSampler(device, &SamplerCreateInfo, nullptr, &TextureSampler);
+
+		if (result != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create texture sampler");
+		}
 	}
 
 	void CreateVertexBuffer()
@@ -1854,6 +1906,8 @@ private:
 	{
 		CleanupSwapchain();
 
+		vkDestroySampler(device, TextureSampler, nullptr);
+		vkDestroyImageView(device, TextureImageView, nullptr);
 		vkDestroyImage(device, TextureImage, nullptr);
 		vkFreeMemory(device, TextureImageMemory, nullptr);
 
