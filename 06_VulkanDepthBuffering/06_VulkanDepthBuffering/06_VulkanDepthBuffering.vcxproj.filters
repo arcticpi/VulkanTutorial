@@ -13,5 +13,29 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Resource Files\shaders">
+      <UniqueIdentifier>{f146abbd-ec6a-4068-add9-ef6225e42c05}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files\textures">
+      <UniqueIdentifier>{58c84a6a-8cac-4d9e-95b5-71c80b676ca7}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="textures\texture.jpg">
+      <Filter>Resource Files\textures</Filter>
+    </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\triangle.frag.glsl">
+      <Filter>Resource Files\shaders</Filter>
+    </None>
+    <None Include="shaders\triangle.vert.glsl">
+      <Filter>Resource Files\shaders</Filter>
+    </None>
   </ItemGroup>
 </Project>
