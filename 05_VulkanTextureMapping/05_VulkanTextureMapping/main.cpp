@@ -54,6 +54,7 @@ struct Vertex
 {
 	glm::vec2 position;
 	glm::vec3 color;
+	glm::vec2 TexCoord;
 
 	static VkVertexInputBindingDescription GetBindingDescription()
 	{
@@ -66,7 +67,7 @@ struct Vertex
 		return BindingDescription;
 	}
 
-	static std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions()
+	static std::array<VkVertexInputAttributeDescription, 3> GetAttributeDescriptions()
 	{
 		VkVertexInputAttributeDescription PositionDescription = {
 			0,							// location
@@ -82,8 +83,14 @@ struct Vertex
 			offsetof(Vertex, color)		// offset
 		};
 
-		std::array<VkVertexInputAttributeDescription, 2> AttributeDescriptions = { PositionDescription, ColorDescription };
+		VkVertexInputAttributeDescription TexCoordDescription = {
+			2,							// location
+			0,							// binding
+			VK_FORMAT_R32G32_SFLOAT,	// format
+			offsetof(Vertex, TexCoord)	// offset
+		};
 
+		std::array<VkVertexInputAttributeDescription, 3> AttributeDescriptions = { PositionDescription, ColorDescription, TexCoordDescription };
 		return AttributeDescriptions;
 	}
 };
@@ -169,10 +176,10 @@ private:
 	bool FramebufferResized = false;
 
 	const std::vector<Vertex> vertices = {
-		{ {-0.5f, -0.5f}, {1.0f, 0.5f, 0.0f} },
-		{ {-0.5f, +0.5f}, {1.0f, 0.0f, 1.0f} },
-		{ {+0.5f, -0.5f}, {1.0f, 1.0f, 0.0f} },
-		{ {+0.5f, +0.5f}, {0.0f, 1.0f, 1.0f} }
+		{ {-0.5f, -0.5f}, {1.0f, 0.5f, 0.0f}, {0.0f, 0.0f} },
+		{ {-0.5f, +0.5f}, {1.0f, 0.0f, 1.0f}, {0.0f, 1.0f} },
+		{ {+0.5f, -0.5f}, {1.0f, 1.0f, 0.0f}, {1.0f, 0.0f} },
+		{ {+0.5f, +0.5f}, {0.0f, 1.0f, 1.0f}, {1.0f, 1.0f} }
 	};
 
 	const std::vector<uint16_t> indices = { 0, 2, 1, 2, 3, 1 };
@@ -1449,18 +1456,25 @@ private:
 
 	void CreateDescriptorPool()
 	{
-		VkDescriptorPoolSize DescriptorPoolSize = {
+		VkDescriptorPoolSize UniformPoolSize = {
 			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,	// type
 			SwapChainImages.size()				// descriptorCount
 		};
+
+		VkDescriptorPoolSize SamplerPoolSize = {
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,	// type
+			SwapChainImages.size()						// descriptorCount
+		};
+
+		std::vector<VkDescriptorPoolSize> PoolSizes = { UniformPoolSize, SamplerPoolSize };
 
 		VkDescriptorPoolCreateInfo DescriptorPoolCreateInfo = {
 			VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,	// sType
 			nullptr,										// pNext
 			0,												// flags
 			SwapChainImages.size(),							// maxSets
-			1,												// poolSizeCount
-			&DescriptorPoolSize								// pPoolSizes
+			PoolSizes.size(),								// poolSizeCount
+			PoolSizes.data()								// pPoolSizes
 		};
 
 		VkResult result = vkCreateDescriptorPool(device, &DescriptorPoolCreateInfo, nullptr, &DescriptorPool);
@@ -1473,7 +1487,7 @@ private:
 
 	void CreateDescriptorSetLayout()
 	{
-		VkDescriptorSetLayoutBinding DescriptorSetLayoutBinding = {
+		VkDescriptorSetLayoutBinding UniformLayoutBinding = {
 			0,									// binding
 			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,	// descriptorType
 			1,									// descriptorCount
@@ -1481,12 +1495,23 @@ private:
 			nullptr								// pImmutableSamplers
 		};
 
+
+		VkDescriptorSetLayoutBinding SamplerLayoutBinding = {
+			1,											// binding
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,	// descriptorType
+			1,											// descriptorCount
+			VK_SHADER_STAGE_FRAGMENT_BIT,				// stageFlags
+			nullptr										// pImmutableSamplers
+		};
+
+		std::vector<VkDescriptorSetLayoutBinding> bindings = { UniformLayoutBinding, SamplerLayoutBinding };
+
 		VkDescriptorSetLayoutCreateInfo DescriptorSetLayoutCreateInfo = {
 			VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,	// sType
 			nullptr,												// pNext
 			0,														// flags
-			1,														// bindingCount
-			&DescriptorSetLayoutBinding								// pBindings
+			bindings.size(),										// bindingCount
+			bindings.data()											// pBindings
 		};
 
 		VkResult result = vkCreateDescriptorSetLayout(device, &DescriptorSetLayoutCreateInfo, nullptr, &DescriptorSetLayout);
@@ -1527,7 +1552,13 @@ private:
 				VK_WHOLE_SIZE		// range
 			};
 
-			VkWriteDescriptorSet WriteDescriptorSet = {
+			VkDescriptorImageInfo DescriptorImageInfo = {
+				TextureSampler,								// sampler
+				TextureImageView,							// imageView
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL	// imageLayout
+			};
+
+			VkWriteDescriptorSet UniformWriteDescriptor = {
 				VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,	// sType
 				nullptr,								// pNext
 				DescriptorSets[i],						// dstSet
@@ -1540,7 +1571,22 @@ private:
 				nullptr									// pTexelBufferView
 			};
 
-			vkUpdateDescriptorSets(device, 1, &WriteDescriptorSet, 0, nullptr);
+			VkWriteDescriptorSet SamplerWriteDescriptor = {
+				VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,		// sType
+				nullptr,									// pNext
+				DescriptorSets[i],							// dstSet
+				1,											// dstBinding
+				0,											// dstArrayElement
+				1,											// descriptorCount
+				VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,	// descriptorType
+				&DescriptorImageInfo,						// pImageInfo
+				nullptr,									// pBufferInfo
+				nullptr										// pTexelBufferView
+			};
+
+			std::vector<VkWriteDescriptorSet> DescriptorWrites = { UniformWriteDescriptor, SamplerWriteDescriptor };
+
+			vkUpdateDescriptorSets(device, DescriptorWrites.size(), DescriptorWrites.data(), 0, nullptr);
 		}
 	}
 
