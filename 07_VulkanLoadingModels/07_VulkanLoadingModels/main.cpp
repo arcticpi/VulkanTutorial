@@ -9,7 +9,6 @@
 #include <iostream>
 #include <stdexcept>
 #include <cstdlib>
-
 #include <string>
 #include <vector>
 #include <optional>
@@ -18,14 +17,20 @@
 #include <fstream>
 #include <array>
 #include <chrono>
+#include <unordered_map>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
+
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tinyobjloader/tiny_obj_loader.h>
 
 #ifdef NDEBUG
 const bool EnableValidationLayer = false;;
@@ -94,7 +99,23 @@ struct Vertex
 		std::array<VkVertexInputAttributeDescription, 3> AttributeDescriptions = { PositionDescription, ColorDescription, TexCoordDescription };
 		return AttributeDescriptions;
 	}
+
+	bool operator==(const Vertex& other) const
+	{
+		return position == other.position && TexCoord == other.TexCoord && color == other.color;
+	}
 };
+
+namespace std
+{
+	template<> struct hash<Vertex>
+	{
+		size_t operator()(const Vertex& vertex) const
+		{
+			return ((hash<glm::vec3>()(vertex.position) ^ (hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^ (hash<glm::vec2>()(vertex.TexCoord) << 1);
+		}
+	};
+}
 
 struct UniformBufferObject
 {
@@ -119,7 +140,10 @@ private:
 	GLFWwindow* window;
 	const int WindowWidth = 800;
 	const int WindowHeight = 600;
-	const char* WindowTitle = "Vulkan Triangle";
+	const char* WindowTitle = "Vulkan Tutorial 07 : Loading Models";
+
+	const std::string ModelPath = "models/chalet.obj";
+	const std::string TexturePath = "textures/chalet.jpg";
 
 	void InitWindow()
 	{
@@ -176,6 +200,7 @@ private:
 
 	bool FramebufferResized = false;
 
+	/*
 	const std::vector<Vertex> vertices = {
 		// top quad
 		{ {-0.5f, -0.5f, +0.0f}, {1.0f, 0.5f, 0.0f}, {0.0f, 0.0f} },
@@ -195,6 +220,10 @@ private:
 		// bottom quad
 		4, 6, 5, 6, 7, 5
 	};
+	*/
+
+	std::vector<Vertex> vertices;
+	std::vector<uint32_t> indices;
 
 	VkBuffer VertexBuffer;
 	VkDeviceMemory VertexBufferMemory;
@@ -234,6 +263,7 @@ private:
 		CreateTextureImage();
 		CreateTextureImageView();
 		CreateTextureSampler();
+		LoadModel();
 		CreateVertexBuffer();
 		CreateIndexBuffer();
 		CreateUniformBuffers();
@@ -437,7 +467,7 @@ private:
 		VkPhysicalDeviceFeatures features;
 		vkGetPhysicalDeviceFeatures(device, &features);
 
-		return index.IsComplete() && ExtensionSupport && SwapChainAdequate && features.samplerAnisotropy;
+		return index.IsComplete() && ExtensionSupport&& SwapChainAdequate&& features.samplerAnisotropy;
 	}
 
 	QueueFamilyIndex FindQueueFamilyIndex(VkPhysicalDevice device)
@@ -1212,7 +1242,8 @@ private:
 		int height;
 		int channels;
 
-		stbi_uc* pixels = stbi_load("textures/texture.jpg", &width, &height, &channels, STBI_rgb_alpha);
+		stbi_uc* pixels = stbi_load(TexturePath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+		// stbi_uc* pixels = stbi_load("textures/texture.jpg", &width, &height, &channels, STBI_rgb_alpha);
 		VkDeviceSize size = width * height * 4;
 
 		if (pixels == nullptr)
@@ -1477,6 +1508,53 @@ private:
 		}
 	}
 
+	void LoadModel()
+	{
+		tinyobj::attrib_t attrib;
+		std::vector<tinyobj::shape_t> shapes;
+		std::vector<tinyobj::material_t> materials;
+		std::string warning;
+		std::string error;
+
+		bool result = tinyobj::LoadObj(&attrib, &shapes, &materials, &warning, &error, ModelPath.c_str());
+
+		if (!result)
+		{
+			throw std::runtime_error(warning + error);
+		}
+
+		std::unordered_map<Vertex, uint32_t> VertexMap = {};
+
+		for (const auto& shape : shapes)
+		{
+			for (const auto& index : shape.mesh.indices)
+			{
+				Vertex vertex = {};
+
+				vertex.position = {
+					attrib.vertices[3 * index.vertex_index + 0],
+					attrib.vertices[3 * index.vertex_index + 1],
+					attrib.vertices[3 * index.vertex_index + 2]
+				};
+
+				vertex.TexCoord = {
+					attrib.texcoords[2 * index.texcoord_index + 0],
+					1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
+				};
+
+				vertex.color = { 1.0f, 1.0f, 1.0f };
+
+				if (VertexMap.count(vertex) == 0)
+				{
+					VertexMap[vertex] = vertices.size();
+					vertices.push_back(vertex);
+				}
+
+				indices.push_back(VertexMap[vertex]);
+			}
+		}
+	}
+
 	void CreateVertexBuffer()
 	{
 		VkBuffer StagingBuffer;
@@ -1557,7 +1635,7 @@ private:
 
 		UniformBufferObject ubo = {};
 
-		ubo.model = glm::rotate(glm::mat4(1.0f), DeltaTime * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		ubo.model = glm::rotate(glm::mat4(1.0f), DeltaTime * glm::radians(90.0f * 0.25f), glm::vec3(0.0f, 0.0f, 1.0f));
 
 		ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 
